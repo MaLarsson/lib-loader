@@ -15,5 +15,7 @@ int main() {
 
     char *(*greeting)() = (char *(*)())lib_lookup_symbol(&lib, "greeting");
     printf("%s\n", greeting());
+
+    return 0;
 }
 ```
