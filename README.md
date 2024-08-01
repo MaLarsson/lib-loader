@@ -8,6 +8,7 @@ The following snippet is an example of how to load and execute functions from a 
 
 ```c++
 #include "lib_loader.h"
+#include <stdio.h>
 
 int main() {
     LibLoader lib = {};
