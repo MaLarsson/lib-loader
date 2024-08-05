@@ -76,14 +76,14 @@ static void init_jump_instruction(ExternalJump *ext_jump, uint8_t *address) {
 }
 
 static Slice<CoffSymbol> coff_symbol_table(CoffFile *file) {
-    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->file_content;
-    CoffSymbol *symbol_base = (CoffSymbol *)(file->file_content + coff_header->PointerToSymbolTable);
+    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->content_base;
+    CoffSymbol *symbol_base = (CoffSymbol *)(file->content_base + coff_header->PointerToSymbolTable);
     return { symbol_base, coff_header->NumberOfSymbols };
 }
 
 static char *coff_string_table(CoffFile *file) {
-    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->file_content;
-    CoffSymbol *symbol_base = (CoffSymbol *)(file->file_content + coff_header->PointerToSymbolTable);
+    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->content_base;
+    CoffSymbol *symbol_base = (CoffSymbol *)(file->content_base + coff_header->PointerToSymbolTable);
     return (char *)(symbol_base + coff_header->NumberOfSymbols);
 }
 
@@ -135,21 +135,15 @@ static uint32_t protection_constant(CoffFile *file, IMAGE_SECTION_HEADER *sectio
     return PAGE_NOACCESS;
 }
 
-bool coff_load_file(CoffFile *file, const char *path) {
-    file->file_content = read_file("tests/test.obj");
-    if (!file->file_content) {
-        printf("ERROR: unable to read obj file.\n");
-        return false;
-    }
+static bool coff_load_file(CoffFile *file, char *content) {
+    file->content_base = content;
 
-    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->file_content;
-    printf("coff sections: %d\n", coff_header->NumberOfSymbols);
-
+    IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->content_base;
     SYSTEM_INFO system_info;
     GetSystemInfo(&system_info);
 
     Slice<IMAGE_SECTION_HEADER> section_headers;
-    section_headers.data = (IMAGE_SECTION_HEADER *)(file->file_content + sizeof(IMAGE_FILE_HEADER));
+    section_headers.data = (IMAGE_SECTION_HEADER *)(file->content_base + sizeof(IMAGE_FILE_HEADER));
     section_headers.count = coff_header->NumberOfSections;
 
     // Collect the total size of the runtime data.
@@ -178,7 +172,7 @@ bool coff_load_file(CoffFile *file, const char *path) {
         bool discardable = (section.Characteristics & IMAGE_SCN_MEM_DISCARDABLE);
 
         if (loadable && !discardable) {
-            memcpy(cursor, file->file_content + section.PointerToRawData, section.SizeOfRawData);
+            memcpy(cursor, file->content_base + section.PointerToRawData, section.SizeOfRawData);
             file->section_mapping[section_index] = cursor;
             cursor += page_align(system_info.dwPageSize, section.SizeOfRawData);
         }
@@ -194,7 +188,7 @@ bool coff_load_file(CoffFile *file, const char *path) {
         uint8_t *section_runtime_base = file->section_mapping[section_index];
 
         if (section_runtime_base) {
-            CoffRelocation *relocations_base = (CoffRelocation *)(file->file_content + section.PointerToRelocations);
+            CoffRelocation *relocations_base = (CoffRelocation *)(file->content_base + section.PointerToRelocations);
             uint32_t number_of_relocations = section.NumberOfRelocations;
 
             for (CoffRelocation &reloc : make_slice(relocations_base, number_of_relocations)) {
@@ -240,7 +234,7 @@ bool coff_load_file(CoffFile *file, const char *path) {
     return true;
 }
 
-uint8_t *coff_lookup_symbol(CoffFile *file, const char *name) {
+static uint8_t *coff_lookup_symbol(CoffFile *file, const char *name) {
     Slice<CoffSymbol> symbol_table = coff_symbol_table(file);
 
     for (uint32_t i = 0; i < symbol_table.count; i += 1) {
@@ -256,8 +250,7 @@ uint8_t *coff_lookup_symbol(CoffFile *file, const char *name) {
     return NULL;
 }
 
-void coff_free(CoffFile *file) {
-    free(file->file_content);
+static void coff_free(CoffFile *file) {
     VirtualFree(file->runtime_base, 0, MEM_RELEASE);
     free(file->section_mapping);
 }
@@ -337,6 +330,8 @@ bool lib_load_file(LibLoader *lib, const char *path) {
     }
 
     uint32_t number_of_archives = *(uint32_t *)cursor;
+    lib->coff_files.data = (CoffFile *)calloc(number_of_archives, sizeof(CoffFile));
+    lib->coff_files.count = number_of_archives;
 
     cursor += parse_archive_size(second->size);
     // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
@@ -349,8 +344,11 @@ bool lib_load_file(LibLoader *lib, const char *path) {
     for (uint32_t i = 0; i < number_of_archives; i += 1) {
         LibArchiveHeader *header = (LibArchiveHeader *)cursor;
         cursor += sizeof(LibArchiveHeader);
+
         StringView name = string_view(header->name, 16);
         printf("\"%.*s\"\n", name.length, name.data);
+
+        coff_load_file(&lib->coff_files.data[i], cursor);
 
         cursor += parse_archive_size(header->size);
         // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
@@ -363,9 +361,19 @@ bool lib_load_file(LibLoader *lib, const char *path) {
 }
 
 void lib_free(LibLoader *lib) {
+    for (CoffFile &coff : lib->coff_files) {
+        coff_free(&coff);
+    }
     free(lib->file_content);
 }
 
 uint8_t *lib_lookup_symbol(LibLoader *lib, const char *name) {
+    // TODO use the symbol table from the lib file to find the coff directly.
+    for (CoffFile &coff : lib->coff_files) {
+        uint8_t *symbol = coff_lookup_symbol(&coff, name);
+        if (symbol) {
+            return symbol;
+        }
+    }
     return NULL;
 }

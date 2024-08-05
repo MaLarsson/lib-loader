@@ -17,6 +17,8 @@ int main() {
     const char *(*greeting)() = (const char *(*)())lib_lookup_symbol(&lib, "greeting");
     printf("%s\n", greeting());
 
+    lib_free(&lib);
+
     return 0;
 }
 ```
