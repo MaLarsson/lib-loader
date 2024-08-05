@@ -10,36 +10,41 @@ int main() {
     printf("real hello: %d\n", hello_world());
     int (*hello2)() = (int (*)())coff_lookup_symbol(&coff, "hello_world");
     if (hello2) {
-        int result = hello2();
-        printf("hello: %d\n", result);
+        printf("hello: %d\n", hello2());
     }
 
     int (*world)() = (int (*)())coff_lookup_symbol(&coff, "world");
     if (world) {
-        int result = world();
-        printf("world: %d\n", result);
+        printf("world: %d\n", world());
     }
 
-    char *(*greeting)() = (char *(*)())coff_lookup_symbol(&coff, "greeting");
-    if (greeting) {
-        char *result = greeting();
-        printf("greeting: %s\n", result);
+    const char *(*greeting1)() = (const char *(*)())coff_lookup_symbol(&coff, "greeting");
+    if (greeting1) {
+        printf("greeting: %s\n", greeting1());
     }
 
     int (*value)() = (int (*)())coff_lookup_symbol(&coff, "value");
     if (value) {
-        int result = value();
-        printf("value: %d\n", result);
+        printf("value: %d\n", value());
     }
 
     void (*set_value)(int) = (void (*)(int))coff_lookup_symbol(&coff, "set_value");
     if (value) {
         set_value(100);
-        int result = value();
-        printf("value: %d\n", result);
+        printf("value: %d\n", value());
     }
 
     coff_free(&coff);
+
+    LibLoader lib = {};
+    lib_load_file(&lib, "tests/test.lib");
+
+    const char *(*greeting)() = (const char *(*)())lib_lookup_symbol(&lib, "greeting");
+    if (greeting) {
+        printf("greeting: %s\n", greeting());
+    }
+
+    lib_free(&lib);
 
     return 0;
 }

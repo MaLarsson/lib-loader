@@ -143,6 +143,8 @@ bool coff_load_file(CoffFile *file, const char *path) {
     }
 
     IMAGE_FILE_HEADER *coff_header = (IMAGE_FILE_HEADER *)file->file_content;
+    printf("coff sections: %d\n", coff_header->NumberOfSymbols);
+
     SYSTEM_INFO system_info;
     GetSystemInfo(&system_info);
 
@@ -260,14 +262,110 @@ void coff_free(CoffFile *file) {
     free(file->section_mapping);
 }
 
+struct LibArchiveHeader {
+    char name[16];
+    char date[12];
+    char user_id[6];
+    char group_id[6];
+    char mode[8];
+    char size[10];
+    char end_of_header[2];
+};
 
-/*
-    char *lib_content = read_file("tests/test.lib");
-    StringView signature = string_view(lib_content, IMAGE_ARCHIVE_START_SIZE);
+struct LibParseContext {
+    LibLoader *lib;
+    char *cursor;
+};
 
-    printf("%.*s\n", IMAGE_ARCHIVE_START_SIZE, lib_content);
+static inline bool is_digit(char c) {
+    return c > '0' && c < '9';
+}
 
-    if (string_compare(signature, IMAGE_ARCHIVE_START)) {
-        printf("correct signature!\n");
+static uint32_t parse_archive_size(char *cursor) {
+    uint32_t result = 0;
+
+    while (is_digit(*cursor)) {
+        result *= 10;
+        result += *cursor - '0';
+        cursor += 1;
     }
-*/
+
+    return result;
+}
+
+bool lib_load_file(LibLoader *lib, const char *path) {
+    lib->file_content = read_file(path);
+    if (!lib->file_content) {
+        printf("ERROR: unable to read lib file.\n");
+        return false;
+    }
+
+    char *cursor = lib->file_content;
+    StringView signature = string_view(lib->file_content, IMAGE_ARCHIVE_START_SIZE);
+    cursor += IMAGE_ARCHIVE_START_SIZE;
+
+    if (!string_compare(signature, IMAGE_ARCHIVE_START)) {
+        printf("ERROR: incorrect signature in lib file.\n");
+        free(lib->file_content);
+        return false;
+    }
+
+    // Skip first linker member.
+    LibArchiveHeader *first = (LibArchiveHeader *)cursor;
+    cursor += sizeof(LibArchiveHeader);
+
+    if (!string_compare(string_view(first->name, 16), IMAGE_ARCHIVE_LINKER_MEMBER)) {
+        printf("ERROR: no first linker member in lib file.\n");
+        free(lib->file_content);
+        return false;
+    }
+
+    cursor += parse_archive_size(first->size);
+    // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
+    if (*cursor == '\n') {
+        cursor += 1;
+    }
+
+    // Parse second linker member.
+    LibArchiveHeader *second = (LibArchiveHeader *)cursor;
+    cursor += sizeof(LibArchiveHeader);
+
+    if (!string_compare(string_view(second->name, 16), IMAGE_ARCHIVE_LINKER_MEMBER)) {
+        printf("ERROR: no second linker member in lib file.\n");
+        free(lib->file_content);
+        return false;
+    }
+
+    uint32_t number_of_archives = *(uint32_t *)cursor;
+
+    cursor += parse_archive_size(second->size);
+    // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
+    if (*cursor == '\n') {
+        cursor += 1;
+    }
+
+    // TODO check for IMAGE_ARCHIVE_LONGNAMES_MEMBER.
+
+    for (uint32_t i = 0; i < number_of_archives; i += 1) {
+        LibArchiveHeader *header = (LibArchiveHeader *)cursor;
+        cursor += sizeof(LibArchiveHeader);
+        StringView name = string_view(header->name, 16);
+        printf("\"%.*s\"\n", name.length, name.data);
+
+        cursor += parse_archive_size(header->size);
+        // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
+        if (*cursor == '\n') {
+            cursor += 1;
+        }
+    }
+
+    return true;
+}
+
+void lib_free(LibLoader *lib) {
+    free(lib->file_content);
+}
+
+uint8_t *lib_lookup_symbol(LibLoader *lib, const char *name) {
+    return NULL;
+}

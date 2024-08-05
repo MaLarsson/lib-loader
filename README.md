@@ -14,7 +14,7 @@ int main() {
     LibLoader lib = {};
     lib_load_file(&lib, "test.lib");
 
-    char *(*greeting)() = (char *(*)())lib_lookup_symbol(&lib, "greeting");
+    const char *(*greeting)() = (const char *(*)())lib_lookup_symbol(&lib, "greeting");
     printf("%s\n", greeting());
 
     return 0;

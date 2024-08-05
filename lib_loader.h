@@ -15,6 +15,11 @@ uint8_t *coff_lookup_symbol(CoffFile *file, const char *name);
 void coff_free(CoffFile *file);
 
 struct LibLoader {
+    char *file_content;
     Array<CoffFile> coff_files;
     uint8_t *runtime_base;
 };
+
+bool lib_load_file(LibLoader *lib, const char *path);
+uint8_t *lib_lookup_symbol(LibLoader *lib, const char *name);
+void lib_free(LibLoader *lib);
