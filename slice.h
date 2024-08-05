@@ -7,7 +7,7 @@ struct Slice {
     T *data;
     uint32_t count;
 
-    T *operator[](uint32_t index) { return &data[index]; }
+    T operator[](uint32_t index) { return data[index]; }
 };
 
 template <typename T> inline Slice<T> make_slice(T *data, uint32_t count) { return { data, count }; }

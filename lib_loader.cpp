@@ -192,7 +192,7 @@ static bool coff_load_file(CoffFile *file, char *content) {
             uint32_t number_of_relocations = section.NumberOfRelocations;
 
             for (CoffRelocation &reloc : make_slice(relocations_base, number_of_relocations)) {
-                CoffSymbol *symbol = symbol_table[reloc.symbol_table_index];
+                CoffSymbol *symbol = &symbol_table[reloc.symbol_table_index];
                 uint8_t *symbol_runtime_base = file->section_mapping[symbol->section_number - 1];
 
                 if (symbol_runtime_base) {
@@ -238,7 +238,7 @@ static uint8_t *coff_lookup_symbol(CoffFile *file, const char *name) {
     Slice<CoffSymbol> symbol_table = coff_symbol_table(file);
 
     for (uint32_t i = 0; i < symbol_table.count; i += 1) {
-        CoffSymbol *symbol = symbol_table[i];
+        CoffSymbol *symbol = &symbol_table[i];
 
         if (string_compare(symbol_name(file, symbol), name)) {
             return file->runtime_base + symbol->value;
@@ -383,7 +383,7 @@ uint8_t *lib_lookup_symbol(LibLoader *lib, const char *name) {
     for (char *symbol : lib->symbol_table) {
         if (string_compare(symbol, name)) {
             uint16_t offset = lib->offset_table[i];
-            return coff_lookup_symbol(lib->coff_files[offset - 1], name);
+            return coff_lookup_symbol(&lib->coff_files[offset - 1], name);
         }
         i += 1;
     }
