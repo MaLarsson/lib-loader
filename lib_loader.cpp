@@ -172,6 +172,7 @@ static bool coff_load_file(CoffFile *file, char *content) {
         bool discardable = (section.Characteristics & IMAGE_SCN_MEM_DISCARDABLE);
 
         if (loadable && !discardable) {
+            printf("load section: %d\n", section_index);
             memcpy(cursor, file->content_base + section.PointerToRawData, section.SizeOfRawData);
             file->section_mapping[section_index] = cursor;
             cursor += page_align(system_info.dwPageSize, section.SizeOfRawData);
@@ -193,25 +194,46 @@ static bool coff_load_file(CoffFile *file, char *content) {
 
             for (CoffRelocation &reloc : make_slice(relocations_base, number_of_relocations)) {
                 CoffSymbol *symbol = &symbol_table[reloc.symbol_table_index];
-                uint8_t *symbol_runtime_base = file->section_mapping[symbol->section_number - 1];
+
+                uint8_t *symbol_runtime_base = NULL;
+                if (symbol->section_number == IMAGE_SYM_UNDEFINED) {
+                    // TODO: section is UNDEF, look for the symbol in another place.
+                } else {
+                    symbol_runtime_base = file->section_mapping[symbol->section_number - 1];
+                }
+
+                StringView name = symbol_name(file, symbol);
+                printf("%.*s, %d\n", name.length, name.data, symbol->section_number);
 
                 if (symbol_runtime_base) {
                     uint8_t *patch_offset = section_runtime_base + reloc.virtual_address;
+
+                    // TODO: is this symbol external and section UNDEF?
+                    // Then we need to find if this symbol is in another coff file or if we should load it from another lib.
                     uint8_t *symbol_address = symbol_runtime_base + symbol->value;
 
                     switch (reloc.type) {
-                    case IMAGE_REL_AMD64_ADDR32NB:
+                    case IMAGE_REL_AMD64_ADDR32NB: {
+                        //printf("%.*s\n", name.length, name.data);
                         // TODO handle this relocation type.
                         break;
-                    case IMAGE_REL_AMD64_REL32:
+                    }
+                    case IMAGE_REL_AMD64_REL32: {
                         *((uint32_t *)patch_offset) = symbol_address - 4 - patch_offset;
                         break;
-                    default:
+                    }
+                    default: {
                         printf("ERROR: unhandled relocation type %d\n", reloc.type);
                         break;
                     }
+                    }
+                } else {
+                    printf("222\n");
                 }
             }
+        } else {
+            StringView name = section_name(file, &section);
+            printf("no runtime base for section: %.*s\n", name.length, name.data);
         }
 
         section_index += 1;
@@ -271,7 +293,7 @@ struct LibParseContext {
 };
 
 static inline bool is_digit(char c) {
-    return c > '0' && c < '9';
+    return c >= '0' && c <= '9';
 }
 
 static uint32_t parse_archive_size(char *cursor) {
@@ -359,6 +381,7 @@ bool lib_load_file(LibLoader *lib, const char *path) {
         LibArchiveHeader *header = (LibArchiveHeader *)cursor;
         cursor += sizeof(LibArchiveHeader);
 
+        printf("load coff!\n");
         coff_load_file(&lib->coff_files.data[i], cursor);
 
         cursor += parse_archive_size(header->size);

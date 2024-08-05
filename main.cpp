@@ -10,6 +10,13 @@ int main() {
         printf("greeting: %s\n", greeting());
     }
 
+    /*
+    int (*call_extern)() = (int (*)())lib_lookup_symbol(&lib, "call_extern");
+    if (call_extern) {
+        printf("call_extern: %d\n", call_extern());
+    }
+    */
+
     lib_free(&lib);
 
     return 0;

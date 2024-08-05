@@ -1,3 +1,12 @@
+#include <stdio.h>
+
+int test();
+
+int call_extern() {
+    printf("hello!!\n");
+    return test();
+}
+
 static int i = 10;
 
 int hello_world() {
