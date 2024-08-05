@@ -13,6 +13,8 @@ struct CoffFile {
 struct LibLoader {
     char *file_content;
     Slice<CoffFile> coff_files;
+    Slice<char *> symbol_table;
+    uint16_t *offset_table;
     uint8_t *runtime_base;
 };
 

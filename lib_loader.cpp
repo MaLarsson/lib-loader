@@ -314,7 +314,6 @@ bool lib_load_file(LibLoader *lib, const char *path) {
     }
 
     cursor += parse_archive_size(first->size);
-    // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
     if (*cursor == '\n') {
         cursor += 1;
     }
@@ -333,25 +332,36 @@ bool lib_load_file(LibLoader *lib, const char *path) {
     lib->coff_files.data = (CoffFile *)calloc(number_of_archives, sizeof(CoffFile));
     lib->coff_files.count = number_of_archives;
 
-    cursor += parse_archive_size(second->size);
-    // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
+    // Parse the symbol table.
+    cursor += sizeof(uint32_t) + sizeof(uint32_t) * number_of_archives;
+    uint32_t number_of_symbols = *(uint32_t *)cursor;
+    cursor += sizeof(uint32_t);
+
+    lib->symbol_table.data = (char **)malloc(sizeof(char *) * number_of_symbols);
+    lib->symbol_table.count = number_of_symbols;
+    lib->offset_table = (uint16_t *)cursor;
+    cursor += sizeof(uint16_t) * number_of_symbols;
+
+    for (uint32_t i = 0; i < number_of_symbols; i += 1) {
+        lib->symbol_table.data[i] = cursor;
+        cursor += strlen(cursor) + 1;
+    }
+
+    // Reset the cursor to the beginning of next member.
+    cursor = (char *)second + parse_archive_size(second->size) + sizeof(LibArchiveHeader);
     if (*cursor == '\n') {
         cursor += 1;
     }
 
-    // TODO check for IMAGE_ARCHIVE_LONGNAMES_MEMBER.
+    // TODO: check for IMAGE_ARCHIVE_LONGNAMES_MEMBER.
 
     for (uint32_t i = 0; i < number_of_archives; i += 1) {
         LibArchiveHeader *header = (LibArchiveHeader *)cursor;
         cursor += sizeof(LibArchiveHeader);
 
-        StringView name = string_view(header->name, 16);
-        printf("\"%.*s\"\n", name.length, name.data);
-
         coff_load_file(&lib->coff_files.data[i], cursor);
 
         cursor += parse_archive_size(header->size);
-        // If we find IMAGE_ARCHIVE_PAD we can move forward one to end on even address.
         if (*cursor == '\n') {
             cursor += 1;
         }
@@ -364,16 +374,18 @@ void lib_free(LibLoader *lib) {
     for (CoffFile &coff : lib->coff_files) {
         coff_free(&coff);
     }
+    free(lib->symbol_table.data);
     free(lib->file_content);
 }
 
 uint8_t *lib_lookup_symbol(LibLoader *lib, const char *name) {
-    // TODO use the symbol table from the lib file to find the coff directly.
-    for (CoffFile &coff : lib->coff_files) {
-        uint8_t *symbol = coff_lookup_symbol(&coff, name);
-        if (symbol) {
-            return symbol;
+    uint32_t i = 0;
+    for (char *symbol : lib->symbol_table) {
+        if (string_compare(symbol, name)) {
+            uint16_t offset = lib->offset_table[i];
+            return coff_lookup_symbol(lib->coff_files[offset - 1], name);
         }
+        i += 1;
     }
     return NULL;
 }
