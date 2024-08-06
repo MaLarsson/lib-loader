@@ -1,9 +1,6 @@
-#include <stdio.h>
-
 int test();
 
 int call_extern() {
-    printf("hello!!\n");
     return test();
 }
 

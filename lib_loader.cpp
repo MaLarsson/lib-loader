@@ -146,6 +146,16 @@ static bool coff_load_file(CoffFile *file, char *content) {
     section_headers.data = (IMAGE_SECTION_HEADER *)(file->content_base + sizeof(IMAGE_FILE_HEADER));
     section_headers.count = coff_header->NumberOfSections;
 
+    // Collect linker directives.
+    for (IMAGE_SECTION_HEADER &section : section_headers) {
+        if (section.Characteristics & IMAGE_SCN_LNK_INFO && string_compare(section_name(file, &section), ".drectve")) {
+            StringView directives = string_view(file->content_base + section.PointerToRawData, section.SizeOfRawData);
+            if (directives.length > 3) {
+                //printf("'%.*s'\n", directives.length, directives.data);
+            }
+        }
+    }
+
     // Collect the total size of the runtime data.
     uint32_t runtime_data_size = 0;
     for (IMAGE_SECTION_HEADER &section : section_headers) {
@@ -172,7 +182,6 @@ static bool coff_load_file(CoffFile *file, char *content) {
         bool discardable = (section.Characteristics & IMAGE_SCN_MEM_DISCARDABLE);
 
         if (loadable && !discardable) {
-            printf("load section: %d\n", section_index);
             memcpy(cursor, file->content_base + section.PointerToRawData, section.SizeOfRawData);
             file->section_mapping[section_index] = cursor;
             cursor += page_align(system_info.dwPageSize, section.SizeOfRawData);
@@ -203,7 +212,7 @@ static bool coff_load_file(CoffFile *file, char *content) {
                 }
 
                 StringView name = symbol_name(file, symbol);
-                printf("%.*s, %d\n", name.length, name.data, symbol->section_number);
+                //printf("%.*s, %d\n", name.length, name.data, symbol->section_number);
 
                 if (symbol_runtime_base) {
                     uint8_t *patch_offset = section_runtime_base + reloc.virtual_address;
@@ -223,17 +232,12 @@ static bool coff_load_file(CoffFile *file, char *content) {
                         break;
                     }
                     default: {
-                        printf("ERROR: unhandled relocation type %d\n", reloc.type);
+                        printf("ERROR: unhandled relocation type: '0x%04X'\n", reloc.type);
                         break;
                     }
                     }
-                } else {
-                    printf("222\n");
                 }
             }
-        } else {
-            StringView name = section_name(file, &section);
-            printf("no runtime base for section: %.*s\n", name.length, name.data);
         }
 
         section_index += 1;
@@ -375,13 +379,19 @@ bool lib_load_file(LibLoader *lib, const char *path) {
         cursor += 1;
     }
 
-    // TODO: check for IMAGE_ARCHIVE_LONGNAMES_MEMBER.
+    LibArchiveHeader *longnames = (LibArchiveHeader *)cursor;
+
+    if (string_compare(string_view(longnames->name, 16), IMAGE_ARCHIVE_LONGNAMES_MEMBER)) {
+        cursor += sizeof(LibArchiveHeader) + parse_archive_size(longnames->size);
+        if (*cursor == '\n') {
+            cursor += 1;
+        }
+    }
 
     for (uint32_t i = 0; i < number_of_archives; i += 1) {
         LibArchiveHeader *header = (LibArchiveHeader *)cursor;
         cursor += sizeof(LibArchiveHeader);
 
-        printf("load coff!\n");
         coff_load_file(&lib->coff_files.data[i], cursor);
 
         cursor += parse_archive_size(header->size);
